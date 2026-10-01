@@ -15,6 +15,6 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "firebase-tools": "15.28.2"
+    "firebase-tools": "15.31.0"
   }
 }
