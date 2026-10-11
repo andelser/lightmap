@@ -29,4 +29,9 @@ jobs:
       - run: npm run check
       - run: npm run test:rules
       - run: npm audit --omit=dev --omit=optional --audit-level=high
-      - run: npm audit --prefix functions --omit=dev --omit=optional --audit-level=high
+      # Report CLI tooling advisories and block critical findings while upstream
+      # resolves the remaining high/moderate transitive dependency advisories.
+      - name: Audit all CLI tooling dependencies
+        run: npm audit --audit-level=critical
+      - name: Audit all Functions dependencies
+        run: npm audit --prefix functions --audit-level=high
