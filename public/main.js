@@ -240,8 +240,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- Core Application Logic ---
   const colors = ["#AA4499", "#EEAA77", "#44AA99", "#332288"];
   let lastMessageTime = 0;
+  let messagePending = false;
 
   function sendMessage(colorIndex, button) {
+    checkIfUnlocked();
     if (!currentUser) {
         showModal('Error', 'Not connected. Please wait a moment and try again.');
         return;
@@ -266,6 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     const buttons = document.querySelectorAll('.buttons button');
+    messagePending = true;
     buttons.forEach(btn => btn.disabled = true);
     
     const buttonText = button.querySelector('.button-text');
@@ -291,7 +294,9 @@ document.addEventListener('DOMContentLoaded', () => {
             incrementButtonClick(colorIndex);
             setTimeout(() => {
               buttonText.textContent = originalButtonText;
-              buttons.forEach(btn => btn.disabled = false);
+              messagePending = false;
+              buttons.forEach(btn => btn.disabled = !currentUser);
+              checkIfUnlocked();
               button.blur();
             }, 2000);
         })
@@ -303,13 +308,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             button.classList.remove('loading');
             buttonText.textContent = originalButtonText;
-            buttons.forEach(btn => btn.disabled = false);
+            messagePending = false;
+            buttons.forEach(btn => btn.disabled = !currentUser);
+            checkIfUnlocked();
         });
     }, error => {
       handleGeolocationError(error);
       button.classList.remove('loading');
       buttonText.textContent = originalButtonText;
-      buttons.forEach(btn => btn.disabled = false);
+      messagePending = false;
+      buttons.forEach(btn => btn.disabled = !currentUser);
+      checkIfUnlocked();
     }, { enableHighAccuracy: false, timeout: CONFIG.GEOLOCATION_TIMEOUT, maximumAge: 300000 });
   }
 
@@ -407,6 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- "Here For You" Feature Logic ---
   const hereForYouContainer = document.getElementById('hereForYouContainer');
   const hereForYouButton = document.getElementById('hereForYouButton');
+  let hereForYouPending = false;
 
   function getStartOfTodayLocal() {
     const now = new Date();
@@ -416,44 +426,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function checkAndResetDailyData() {
     const todayLocalStart = getStartOfTodayLocal();
-    const lastPressedData = readStoredJson(KEYS.HERE_FOR_YOU_PRESSED, null);
+    let progress = readStoredJson(KEYS.BUTTON_COUNTS, null);
+    // Legacy arrays have no date, so none of their presses can be attributed
+    // to today. Reset them, as well as expired or malformed dated progress.
+    if (progress?.day !== todayLocalStart || !Array.isArray(progress.counts) ||
+        progress.counts.length !== colors.length ||
+        !progress.counts.every(count => Number.isSafeInteger(count) && count >= 0)) {
+      progress = { day: todayLocalStart, counts: colors.map(() => 0) };
+      localStorage.setItem(KEYS.BUTTON_COUNTS, JSON.stringify(progress));
+    }
 
-    if (lastPressedData && lastPressedData.timestamp < todayLocalStart) {
-      localStorage.removeItem(KEYS.BUTTON_COUNTS);
+    const lastPressedData = readStoredJson(KEYS.HERE_FOR_YOU_PRESSED, null);
+    const tomorrowLocal = new Date(todayLocalStart);
+    tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
+    if (lastPressedData && (!Number.isFinite(lastPressedData.timestamp) ||
+        lastPressedData.timestamp < todayLocalStart ||
+        lastPressedData.timestamp >= tomorrowLocal.getTime())) {
       localStorage.removeItem(KEYS.HERE_FOR_YOU_PRESSED);
     }
+    return progress;
   }
   
   function incrementButtonClick(index) {
-    const counts = readStoredJson(KEYS.BUTTON_COUNTS, [0, 0, 0, 0]);
-    if (!Array.isArray(counts) || counts.length !== colors.length) {
-      localStorage.removeItem(KEYS.BUTTON_COUNTS);
-      return;
-    }
-    counts[index]++;
-    localStorage.setItem(KEYS.BUTTON_COUNTS, JSON.stringify(counts));
-    checkIfUnlocked(counts);
+    const progress = checkAndResetDailyData();
+    progress.counts[index]++;
+    localStorage.setItem(KEYS.BUTTON_COUNTS, JSON.stringify(progress));
+    checkIfUnlocked();
   }
 
-  function checkIfUnlocked(currentCounts) {
-    const storedCounts = readStoredJson(KEYS.BUTTON_COUNTS, [0, 0, 0, 0]);
-    const counts = currentCounts || storedCounts;
+  function checkIfUnlocked() {
+    const { counts } = checkAndResetDailyData();
     const lastPressedData = readStoredJson(KEYS.HERE_FOR_YOU_PRESSED, null);
-    const todayLocalStart = getStartOfTodayLocal();
+    const unlocked = !lastPressedData && counts.every(count => count >= CONFIG.UNLOCK_COUNT);
 
-    if(lastPressedData && lastPressedData.timestamp >= todayLocalStart) {
-        return;
-    }
+    hereForYouContainer.classList.toggle('hidden', !unlocked);
+    hereForYouButton.disabled = !unlocked || !currentUser || messagePending || hereForYouPending;
+    return unlocked;
+  }
 
-    const unlocked = Array.isArray(counts) && counts.length === colors.length &&
-      counts.every(count => Number.isFinite(count) && count >= CONFIG.UNLOCK_COUNT);
-    if (unlocked) {
-      hereForYouContainer.classList.remove('hidden');
-      hereForYouButton.disabled = !currentUser;
-    }
+  function scheduleDailyProgressReset() {
+    const nextMidnight = new Date();
+    nextMidnight.setHours(24, 0, 0, 0);
+    setTimeout(() => {
+      checkIfUnlocked();
+      scheduleDailyProgressReset();
+    }, nextMidnight.getTime() - Date.now() + 50);
   }
 
   hereForYouButton.addEventListener('click', () => {
+    if (!checkIfUnlocked() || messagePending || hereForYouPending) return;
     if (!currentUser) {
         showModal('Error', 'Not connected. Please wait a moment and try again.');
       return;
@@ -468,12 +489,21 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
+    hereForYouPending = true;
     hereForYouButton.disabled = true;
     const buttonText = hereForYouButton.querySelector('.button-text');
     const originalButtonText = buttonText.textContent;
     hereForYouButton.classList.add('loading');
 
     navigator.geolocation.getCurrentPosition(position => {
+      // Geolocation can finish after midnight or after another tab consumes
+      // today's unlock. Recheck before creating the map message.
+      if (!checkIfUnlocked()) {
+        hereForYouPending = false;
+        hereForYouButton.classList.remove('loading');
+        checkIfUnlocked();
+        return;
+      }
       const { latitude, longitude } = position.coords;
       const hash = encodeGeohash(latitude, longitude);
       
@@ -493,9 +523,9 @@ document.addEventListener('DOMContentLoaded', () => {
             announceStatus("Here for you displayed on the map.");
 
             setTimeout(() => {
-              hereForYouContainer.classList.add('hidden');
               buttonText.textContent = originalButtonText;
-              hereForYouButton.disabled = false;
+              hereForYouPending = false;
+              checkIfUnlocked();
             }, 2000);
         })
         .catch(error => {
@@ -506,13 +536,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             hereForYouButton.classList.remove('loading');
             buttonText.textContent = originalButtonText;
-            hereForYouButton.disabled = false;
+            hereForYouPending = false;
+            checkIfUnlocked();
         });
     }, error => {
       handleGeolocationError(error);
       hereForYouButton.classList.remove('loading');
       buttonText.textContent = originalButtonText;
-      hereForYouButton.disabled = false;
+      hereForYouPending = false;
+      checkIfUnlocked();
     }, { enableHighAccuracy: false, timeout: CONFIG.GEOLOCATION_TIMEOUT, maximumAge: 300000 });
   });
 
@@ -605,12 +637,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('msg-3').addEventListener('click', (event) => sendMessage(3, event.currentTarget));
 
   scheduleCapRefreshAtUtcMidnight();
+  checkIfUnlocked();
+  scheduleDailyProgressReset();
+
+  window.addEventListener('focus', checkIfUnlocked);
+  window.addEventListener('pageshow', checkIfUnlocked);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkIfUnlocked();
+  });
+  window.addEventListener('storage', (event) => {
+    if (event.key === null || Object.values(KEYS).includes(event.key)) checkIfUnlocked();
+  });
 
   d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json").then(geoData => {
     worldData = topojson.feature(geoData, geoData.objects.countries);
     setupAndRenderMap();
     mapLoaded = true;
-    checkAndResetDailyData();
     checkIfUnlocked();
     updateAppReady();
   }).catch(err => {

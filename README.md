@@ -2,8 +2,9 @@
 
 [Lightmap](https://hereforyoumap.com) is a minimalist real-time connection map.
 People can place one of four brief sentiments on an approximate part of the
-world map. After using all four, they can leave a small “Here for you” dot for
-the next 24 hours.
+world map. After using all four during their current local calendar day, they
+can leave one small “Here for you” dot for the next 24 hours. Saved button
+progress resets at local midnight, whether or not they used “Here for you.”
 
 The project is inspired by Ho'oponopono and *The Pitt*. Its purpose is modest:
 to offer a quiet reminder that someone else is out there.
