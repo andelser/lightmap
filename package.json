@@ -15,6 +15,15 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "firebase-tools": "15.33.0"
+    "firebase-tools": "15.35.0"
+  },
+  "overrides": {
+    "@google-cloud/pubsub@5": {
+      "@opentelemetry/core": "^2.8.0"
+    },
+    "gaxios@6": {
+      "uuid": "^11.1.1"
+    },
+    "glob@10": "^14.0.4"
   }
 }
