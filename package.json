@@ -15,7 +15,7 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "firebase-tools": "15.35.0"
+    "firebase-tools": "15.37.0"
   },
   "overrides": {
     "@google-cloud/pubsub@5": {

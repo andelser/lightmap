@@ -12,7 +12,7 @@ test("Firebase Hosting publishes only the public directory", async () => {
 test("the public entry point references pinned external assets", async () => {
   const html = await readFile("public/index.html", "utf8");
 
-  assert.match(html, /d3@7\.9\.0/);
+  assert.match(html, /d3@7\.9\.2/);
   assert.match(html, /topojson-client@3\.1\.0/);
   assert.doesNotMatch(html, /user-scalable=no/);
 });
